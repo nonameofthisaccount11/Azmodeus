@@ -1,31 +1,33 @@
-const { makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys')
-const Pino = require('pino')
-const { exec } = require("child_process")
+const { makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
+const Pino = require('pino');
+const { exec } = require("child_process");
+const config = require("./config");
 
 async function startBot() {
-    const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys')
+    const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
     const sock = makeWASocket({
         auth: state,
         printQRInTerminal: true,
-        logger: Pino({ level: 'silent' }),
-        browser: ['Azmodeus-Bot', 'Chrome', '1.0']
-    })
+        logger: Pino({ level: config.logging ? 'debug' : 'silent' }),
+        browser: [config.botName, 'Chrome', '1.0']
+    });
 
-    sock.ev.on('creds.update', saveCreds)
+    sock.ev.on('creds.update', saveCreds);
 
     sock.ev.on('messages.upsert', async ({ messages }) => {
-        const msg = messages[0]
-        if (!msg.message || msg.key.fromMe) return
+        try {
+            const msg = messages[0];
+            if (!msg.message || msg.key.fromMe) return;
 
-        const from = msg.key.remoteJid
-        const text = msg.message.conversation || msg.message.extendedTextMessage?.text
-        const sender = msg.key.participant || msg.key.remoteJid
+            const from = msg.key.remoteJid;
+            const text = msg.message.conversation || msg.message.extendedTextMessage?.text;
+            const sender = msg.key.participant || msg.key.remoteJid;
 
-        console.log(`📩 Message from ${from}: ${text}`)
+            console.log(`📩 Message from ${from}: ${text}`);
 
-        // 📜 Dark Web Themed Menu
-        if (text && text.toLowerCase() === ".menu") {
-            await sock.sendMessage(from, { text: `🌑 *Azmodeus Dark Web Menu* 🌑\n
+            const commands = {
+                ".menu": async () => {
+                    await sock.sendMessage(from, { text: `🌑 *Azmodeus Dark Web Menu* 🌑\n
 🔹 *Admin Commands*  
 - 🚫 !kick [@user] - Remove user  
 - 👑 !promote [@user] - Make admin  
@@ -37,69 +39,78 @@ async function startBot() {
 - 📸 Anti-View Once  
 
 🔹 *Hacker Tools*  
-- 🕵️ Deep Web Search  
-- 🛠 SQL Injection Testing  
-- 🔐 Hide Messages in Images  
-- 💰 Crypto Price Check  
+- 🕵️ .whois [domain] - Domain lookup  
+- 🛠 .portscan [IP] - Open port scanner  
+- 🔐 .ipinfo [IP] - IP address info  
 
 🔹 *System Control*  
 - 🔄 .update - Pull latest bot updates  
 - 📊 .status - Check bot status  
-` })
-        }
-
-        // 🛑 Anti-Link Feature (Deletes Links)
-        if (text && text.match(/https?:\/\/\S+/gi)) {
-            await sock.sendMessage(from, { text: `🚨 *No Links Allowed!* 🚨\n@${sender.split('@')[0]}, your message has been deleted.`, mentions: [sender] })
-            await sock.sendMessage(from, { delete: msg.key })
-            return
-        }
-
-        // 🤖 Auto-Reply Feature
-        if (text && text.toLowerCase() === "hi") {
-            await sock.sendMessage(from, { text: "Hello! How can I assist you today?" })
-        }
-
-        // 🛠 Admin Commands
-        if (text && text.startsWith("!kick")) {
-            if (!msg.key.fromMe) return
-            const mentioned = msg.message.extendedTextMessage?.contextInfo?.mentionedJid
-            if (!mentioned) return sock.sendMessage(from, { text: "❌ Mention a user to kick." })
-            await sock.groupParticipantsUpdate(from, mentioned, "remove")
-        }
-
-        if (text && text.startsWith("!promote")) {
-            if (!msg.key.fromMe) return
-            const mentioned = msg.message.extendedTextMessage?.contextInfo?.mentionedJid
-            if (!mentioned) return sock.sendMessage(from, { text: "❌ Mention a user to promote." })
-            await sock.groupParticipantsUpdate(from, mentioned, "promote")
-        }
-
-        // 🔄 Auto-Updater Command (Updates Bot from GitHub)
-        if (text && text.toLowerCase() === ".update") {
-            await sock.sendMessage(from, { text: "🔄 Updating bot from GitHub..." })
-            exec("git pull && pm2 restart azmodeus", (error, stdout, stderr) => {
-                if (error) {
-                    sock.sendMessage(from, { text: "❌ Update failed:\n" + error.message })
-                    return
+` });
+                },
+                ".whois": async () => {
+                    const domain = text.split(" ")[1];
+                    if (!domain) return sock.sendMessage(from, { text: "❌ Usage: .whois <domain>" });
+                    exec(`whois ${domain}`, async (error, stdout) => {
+                        if (error) return sock.sendMessage(from, { text: `❌ Error: ${error.message}` });
+                        await sock.sendMessage(from, { text: stdout || "No WHOIS data found." });
+                    });
+                },
+                ".portscan": async () => {
+                    const ip = text.split(" ")[1];
+                    if (!ip) return sock.sendMessage(from, { text: "❌ Usage: .portscan <IP>" });
+                    exec(`nmap ${ip}`, async (error, stdout) => {
+                        if (error) return sock.sendMessage(from, { text: `❌ Error: ${error.message}` });
+                        await sock.sendMessage(from, { text: stdout || "No open ports found." });
+                    });
+                },
+                ".ipinfo": async () => {
+                    const ip = text.split(" ")[1];
+                    if (!ip) return sock.sendMessage(from, { text: "❌ Usage: .ipinfo <IP>" });
+                    exec(`curl -s ipinfo.io/${ip}`, async (error, stdout) => {
+                        if (error) return sock.sendMessage(from, { text: `❌ Error: ${error.message}` });
+                        await sock.sendMessage(from, { text: stdout || "No IP info found." });
+                    });
+                },
+                ".update": async () => {
+                    await sock.sendMessage(from, { text: "🔄 Updating bot from GitHub..." });
+                    exec("git pull && pm2 restart azmodeus", (error, stdout) => {
+                        if (error) return sock.sendMessage(from, { text: "❌ Update failed:\n" + error.message });
+                        sock.sendMessage(from, { text: "✅ Update successful! Bot restarted.\n" + stdout });
+                    });
                 }
-                sock.sendMessage(from, { text: "✅ Update successful! Bot restarted.\n" + stdout })
-            })
+            };
+
+            if (commands[text]) {
+                await commands[text]();
+            }
+
+            if (config.antiLink && text.match(/https?:\/\/\S+/gi)) {
+                await sock.sendMessage(from, { text: `🚨 *No Links Allowed!* 🚨\n@${sender.split('@')[0]}, your message has been deleted.`, mentions: [sender] });
+                await sock.sendMessage(from, { delete: msg.key });
+            }
+
+        } catch (error) {
+            console.error("❌ Error handling message:", error);
         }
-    })
+    });
 
     sock.ev.on('connection.update', async (update) => {
-        const { connection, lastDisconnect } = update
-        if (connection === 'close') {
-            const reason = lastDisconnect?.error?.output?.statusCode
-            if (reason === DisconnectReason.badSession) {
-                console.log('❌ Bad session, delete auth_info_baileys and restart.')
-            } else {
-                console.log('🔄 Reconnecting...')
-                startBot()
+        try {
+            const { connection, lastDisconnect } = update;
+            if (connection === 'close') {
+                const reason = lastDisconnect?.error?.output?.statusCode;
+                if (reason === DisconnectReason.badSession) {
+                    console.log('❌ Bad session, delete auth_info_baileys and restart.');
+                } else {
+                    console.log('🔄 Reconnecting...');
+                    startBot();
+                }
             }
+        } catch (error) {
+            console.error("❌ Connection error:", error);
         }
-    })
+    });
 }
 
-startBot()
+startBot();
