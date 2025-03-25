@@ -3,30 +3,34 @@ const path = require("path");
 
 const commands = new Map();
 
-// Load all command files
-fs.readdirSync("./commands").forEach(file => {
+// Load all command files from the "commands" folder
+const commandsPath = path.join(__dirname, "commands");
+fs.readdirSync(commandsPath).forEach(file => {
     if (file.endsWith(".js")) {
-        const command = require(path.join(__dirname, "commands", file));
-        commands.set(command.name, command);
+        const command = require(`./commands/${file}`);
+        commands.set(command.name, command.execute);
     }
 });
 
+// Debugging: Check if all commands are loaded
+console.log(`✅ Loaded ${commands.size} commands:`, [...commands.keys()]);
+
 async function handleMessage(sock, msg) {
-    const text = msg.message.conversation || msg.message.extendedTextMessage?.text || "";
-    const from = msg.key.remoteJid;
-    const sender = msg.key.participant || msg.key.remoteJid;
+    try {
+        if (!msg.message || msg.key.fromMe) return;
 
-    console.log(`📩 Message from ${from}: ${text}`);
+        const from = msg.key.remoteJid;
+        const text = msg.message.conversation || msg.message.extendedTextMessage?.text;
 
-    const [cmd, ...args] = text.split(" ");
+        console.log(`📩 Message from ${from}: ${text}`);
 
-    if (commands.has(cmd)) {
-        try {
-            await commands.get(cmd).execute(sock, msg, args);
-        } catch (error) {
-            console.error("❌ Error executing command:", error);
+        // Execute command if it exists
+        if (commands.has(text)) {
+            await commands.get(text)(sock, from);
         }
+    } catch (error) {
+        console.error("❌ Error handling message:", error);
     }
 }
 
-module.exports = { handleMessage };
+module.exports = handleMessage;
